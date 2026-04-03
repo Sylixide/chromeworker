@@ -74,7 +74,7 @@ extScreenshot({ fullPage: true })
 
 ## Requirements
 
-- CoWorker CLI (https://github.com/Sylixide/coworker)
+- CoWorker CLI (https://sylixide.com/product/coworker)
 - Chrome, Brave, Edge, or Chromium-based browser
 
 ## License
