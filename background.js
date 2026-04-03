@@ -8,9 +8,64 @@
   var require_background = __commonJS({
     "background.ts"(exports, module) {
       var EXTENSION_ID = "coworker-browser-control";
+      var NATIVE_HOST_NAME = "com.coworker.chrome_native_host";
       var MAX_MESSAGE_SIZE = 1024 * 1024;
       var consoleMessages = [];
       var MAX_CONSOLE_MESSAGES = 1e3;
+      var nativePort = null;
+      var nativeConnected = false;
+      function connectToNativeHost() {
+        try {
+          nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+          nativeConnected = true;
+          console.log("[CoWorker] Connected to native host");
+          nativePort.onMessage.addListener((message) => {
+            const msg = message;
+            if (msg.type === "tool_response" || msg.type === "status_response") {
+            }
+          });
+          nativePort.onDisconnect.addListener(() => {
+            console.log("[CoWorker] Disconnected from native host");
+            nativeConnected = false;
+            nativePort = null;
+            setTimeout(connectToNativeHost, 5e3);
+          });
+        } catch (error) {
+          console.log("[CoWorker] Failed to connect to native host:", error);
+          nativeConnected = false;
+          setTimeout(connectToNativeHost, 5e3);
+        }
+      }
+      function sendToNativeHost(message) {
+        if (nativePort && nativeConnected) {
+          try {
+            nativePort.postMessage(message);
+          } catch (error) {
+            console.log("[CoWorker] Failed to send to native host:", error);
+          }
+        }
+      }
+      async function handleToolRequestNative(request2) {
+        return new Promise((resolve) => {
+          if (!nativePort || !nativeConnected) {
+            resolve({ success: false, error: "Not connected to native host" });
+            return;
+          }
+          const responseHandler = (message) => {
+            const msg = message;
+            if (msg.success !== void 0) {
+              nativePort?.onMessage.removeListener(responseHandler);
+              resolve(msg);
+            }
+          };
+          nativePort.onMessage.addListener(responseHandler);
+          sendToNativeHost({ type: "tool_request", ...request2 });
+          setTimeout(() => {
+            nativePort?.onMessage.removeListener(responseHandler);
+            resolve({ success: false, error: "Request timeout" });
+          }, 3e4);
+        });
+      }
       function addConsoleMessage(msg) {
         consoleMessages.push(msg);
         if (consoleMessages.length > MAX_CONSOLE_MESSAGES) {
@@ -18,6 +73,13 @@
         }
       }
       async function handleToolRequest(request) {
+        if (nativeConnected && nativePort) {
+          try {
+            return await handleToolRequestNative(request);
+          } catch (error) {
+            console.log("[CoWorker] Native host failed, falling back to local:", error);
+          }
+        }
         const { method, params } = request;
         try {
           switch (method) {
@@ -249,6 +311,7 @@
           });
         }
       });
+      connectToNativeHost();
     }
   });
   require_background();

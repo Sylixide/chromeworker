@@ -1,0 +1,6 @@
+{
+  "name": "com.coworker.chrome_native_host",
+  "description": "CoWorker Chrome Native Host - MCP Bridge for browser automation",
+  "path": "coworker-chrome-native-host.bat",
+  "type": "stdio"
+}
