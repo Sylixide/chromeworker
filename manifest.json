@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CoWorker Browser Control",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "CoWorker Chrome extension for browser automation via MCP",
   "permissions": [
     "tabs",

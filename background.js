@@ -312,6 +312,53 @@
         }
       });
       connectToNativeHost();
+      var CURRENT_VERSION = "1.0.1";
+      var GITHUB_RELEASES_URL = "https://api.github.com/repos/Sylixide/chromeworker/releases/latest";
+      var DOWNLOAD_URL = "https://github.com/Sylixide/chromeworker/releases";
+      var updateAvailable = false;
+      var latestVersion = CURRENT_VERSION;
+      async function checkForUpdates() {
+        try {
+          const response = await fetch(GITHUB_RELEASES_URL);
+          if (!response.ok) return;
+          const data = await response.json();
+          const remoteVersion = data.tag_name?.replace("v", "") || "";
+          if (remoteVersion && remoteVersion !== CURRENT_VERSION) {
+            const currentParts = CURRENT_VERSION.split(".").map(Number);
+            const remoteParts = remoteVersion.split(".").map(Number);
+            for (let i = 0; i < Math.max(currentParts.length, remoteParts.length); i++) {
+              const current = currentParts[i] || 0;
+              const remote = remoteParts[i] || 0;
+              if (remote > current) {
+                updateAvailable = true;
+                latestVersion = remoteVersion;
+                console.log(`[CoWorker] Update available: v${CURRENT_VERSION} \u2192 v${latestVersion}`);
+                chrome.storage.local.set({ updateAvailable: true, latestVersion, downloadUrl: DOWNLOAD_URL });
+                return;
+              }
+              if (remote < current) break;
+            }
+          }
+          chrome.storage.local.set({ updateAvailable: false, latestVersion: CURRENT_VERSION });
+        } catch (error) {
+          console.log("[CoWorker] Failed to check for updates:", error);
+        }
+      }
+      checkForUpdates();
+      setInterval(checkForUpdates, 6 * 60 * 60 * 1e3);
+      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message.type === "check_update") {
+          sendResponse({ updateAvailable, latestVersion, currentVersion: CURRENT_VERSION, downloadUrl: DOWNLOAD_URL });
+          return false;
+        }
+        if (message.type === "force_check_update") {
+          checkForUpdates().then(() => {
+            sendResponse({ updateAvailable, latestVersion, currentVersion: CURRENT_VERSION, downloadUrl: DOWNLOAD_URL });
+          });
+          return true;
+        }
+        return false;
+      });
     }
   });
   require_background();
