@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>CoWorker Authenticator</title>
+  <title>CoWorker Dashboard</title>
   <style>
     :root {
       --bg-base: #0f1115;
@@ -121,44 +121,6 @@
       font-variant-numeric: tabular-nums;
     }
 
-    .action-button {
-      background-color: var(--accent);
-      color: #ffffff;
-      border: 1px solid rgba(240, 246, 252, 0.1);
-      padding: 10px 16px;
-      font-size: 13px;
-      font-weight: 500;
-      border-radius: 6px;
-      cursor: pointer;
-      width: 100%;
-      text-align: center;
-      transition: background-color 0.2s ease, transform 0.1s ease;
-      outline: none;
-    }
-
-    .action-button:hover {
-      background-color: var(--accent-hover);
-    }
-
-    .action-button:active {
-      transform: translateY(1px);
-    }
-
-    /* Auth State Control */
-    .view-unauthenticated, .view-authenticated {
-      display: none;
-    }
-
-    body[data-auth-state="false"] .view-unauthenticated {
-       display: flex;
-       flex-direction: column;
-       gap: 16px;
-    }
-
-    body[data-auth-state="true"] .view-authenticated {
-       display: block;
-    }
-
     .divider {
       height: 1px;
       background: var(--border-color);
@@ -179,47 +141,34 @@
 
   </style>
 </head>
-<body data-auth-state="false">
+<body>
 
   <div class="header">
     <h1 class="brand">Sylix CoWorker</h1>
-    <p class="subtitle">Cloud-Relayed Browser Automation</p>
+    <p class="subtitle">Local Native Messaging Bridge</p>
   </div>
 
   <div class="dashboard-panel">
     
-    <!-- Not Logged In View -->
-    <div class="view-unauthenticated">
-      <div style="font-size: 13px; line-height: 1.5; color: var(--text-muted);">
-        Authenticate with your Sylix IDE account to pair your CLI and automate your browser remotely.
+    <div class="status-row">
+      <span class="status-label">Bridge Status</span>
+      <div class="status-indicator">
+        <div class="status-circle" id="relayDot"></div>
+        <span class="status-text" id="relayText">Offline</span>
       </div>
-      <button class="action-button" id="loginBtn">Authenticate Workspace</button>
     </div>
-
-    <!-- Authenticated / Connected View -->
-    <div class="view-authenticated">
-      <div class="status-row">
-        <span class="status-label">Relay Status</span>
-        <div class="status-indicator">
-          <div class="status-circle" id="relayDot"></div>
-          <span class="status-text" id="relayText">Offline</span>
-        </div>
+    
+    <div class="divider"></div>
+    
+    <div class="stats-container">
+      <div class="stat-row">
+        <span class="stat-key">Managed Tabs</span>
+        <span class="stat-value" id="tabCount">-</span>
       </div>
-      
-      <div class="divider"></div>
-      
-      <div class="stats-container">
-        <div class="stat-row">
-          <span class="stat-key">Managed Tabs</span>
-          <span class="stat-value" id="tabCount">-</span>
-        </div>
-        <div class="stat-row" style="margin-top: 4px;">
-          <span class="stat-key">Session JWT</span>
-          <span class="stat-value" style="font-family: monospace; color: var(--success);">Active</span>
-        </div>
+      <div class="stat-row" style="margin-top: 4px;">
+        <span class="stat-key">Execution Runtime</span>
+        <span class="stat-value" style="font-family: monospace; color: var(--success);">Local (0ms)</span>
       </div>
-      
-      <button class="action-button" id="logoutBtn" style="margin-top: 16px; background-color: var(--bg-base); border: 1px solid var(--border-color); color: var(--text-muted);">Disconnect Session</button>
     </div>
 
   </div>
