@@ -70,7 +70,18 @@ async function handleToolRequest(request) {
                 };
             }
             case 'tabs_update': {
-                const [tab] = await chrome.tabs.update(params);
+                const p = params;
+                const tabId = p.tabId;
+                const updateProperties = { url: p.url, active: p.active };
+                // Remove undefined properties
+                Object.keys(updateProperties).forEach(key => updateProperties[key] === undefined && delete updateProperties[key]);
+                let tab;
+                if (tabId !== undefined) {
+                    tab = await chrome.tabs.update(tabId, updateProperties);
+                }
+                else {
+                    tab = await chrome.tabs.update(updateProperties);
+                }
                 return {
                     success: true,
                     result: tab ? {

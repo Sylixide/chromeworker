@@ -106,7 +106,22 @@ async function handleToolRequest(request: ToolRequest): Promise<ToolResponse> {
       }
 
       case 'tabs_update': {
-        const [tab] = await chrome.tabs.update(params as chrome.tabs.UpdateProperties);
+        const p = params as any;
+        const tabId = p.tabId;
+        const updateProperties = { url: p.url, active: p.active };
+        
+        // Remove undefined properties
+        Object.keys(updateProperties).forEach(key => 
+          (updateProperties as any)[key] === undefined && delete (updateProperties as any)[key]
+        );
+
+        let tab;
+        if (tabId !== undefined) {
+          tab = await chrome.tabs.update(tabId, updateProperties);
+        } else {
+          tab = await chrome.tabs.update(updateProperties);
+        }
+        
         return {
           success: true,
           result: tab ? {
