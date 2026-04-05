@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CoWorker Browser Control",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z7wprRMbB2lycl4ycaPaUwf/Ep3+ucfkshgdirv4OlZa3tNKJrFYTu43LayZtqysvwl16fxQMTJRKMbq9DO9PcbnpVCx5hhOXzlkhpbUFEqBpAUrfZY/Lb8+kosnxw26eGEMXQ8npn2u31dkRI1kkWFqKm34BkGiFEps226yywHxXVBWkolg7OBIzOiT8E83/59z4HmzdnFijTJR/Yl8H1tZ/pgyL5cKXM3SF5dJi0u5+Hojq9/4b4jryVTWqNa8uSh/J0ytdbjkotoZFVcYZZ+NhMVQ6GU+OyCRQ+7yxlAqJ4Ya2USgg8/GkvqqXiM0lujYCzPf4MuZMi7mU0D8wIDAQAB",
   "description": "CoWorker Chrome extension for browser automation via MCP",
   "permissions": [
