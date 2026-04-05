@@ -449,68 +449,51 @@ function setupConsoleListener(): void {
 
 setupConsoleListener();
 
-let ws: WebSocket | null = null;
+let nativePort: chrome.runtime.Port | null = null;
 let isNativeConnected = false;
 
-// Token can be fetched from storage in the future to pair securely.
-// For now, we simulate the IDE auth with a fixed token.
-const SYLIX_BACKEND_URL = 'wss://api.sylixide.com/ws/extension?token=default-desktop-token';
-
-function connectToSylixBackend() {
-  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
-  console.log('[CoWorker] Attempting to connect to Sylix backend WebSocket...');
+function connectToNativeHost() {
+  if (nativePort) return;
+  console.log('[CoWorker] Attempting to connect to native host...');
   try {
-    ws = new WebSocket(SYLIX_BACKEND_URL);
+    nativePort = chrome.runtime.connectNative('com.sylix.coworker');
     
-    ws.onopen = () => {
-      console.log('[CoWorker] Connected to Sylix backend successfully.');
-      isNativeConnected = true;
-    };
-    
-    ws.onmessage = async (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log('[CoWorker] Received message from backend:', message);
-        if (message.type === 'tool_request' && message.id) {
-          const response = await handleToolRequest(message as ToolRequest);
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'tool_response',
-              id: message.id,
-              success: response.success,
-              result: response.result,
-              error: response.error
-            }));
-          }
+    nativePort.onMessage.addListener(async (message) => {
+      console.log('[CoWorker] Received message from native host:', message);
+      if (message.type === 'tool_request' && message.id) {
+        const response = await handleToolRequest(message as ToolRequest);
+        if (nativePort) {
+          nativePort.postMessage({
+            type: 'tool_response',
+            id: message.id,
+            success: response.success,
+            result: response.result,
+            error: response.error
+          });
         }
-      } catch (e) {
-        console.error('[CoWorker] Failed to handle WebSocket message:', e);
       }
-    };
+    });
 
-    ws.onclose = (event) => {
-      console.log('[CoWorker] Disconnected from Sylix backend:', event.reason);
-      ws = null;
+    nativePort.onDisconnect.addListener(() => {
+      console.log('[CoWorker] Disconnected from native host:', chrome.runtime.lastError?.message);
+      nativePort = null;
       isNativeConnected = false;
-      // Reconnect after 5 seconds
-      setTimeout(connectToSylixBackend, 5000);
-    };
+      // Retry periodically, as CoWorker CLI might restart
+      setTimeout(connectToNativeHost, 5000);
+    });
 
-    ws.onerror = (err: Event) => {
-      console.error('[CoWorker] WebSocket error:', err);
-      try { ws?.close(); } catch(e) {}
-    };
-
+    isNativeConnected = true;
+    console.log('[CoWorker] Connected to native host successfully.');
   } catch (err: any) {
-    console.error('[CoWorker] Failed to connect to Sylix backend:', err);
-    ws = null;
+    console.error('[CoWorker] Failed to connect to native host:', err);
+    nativePort = null;
     isNativeConnected = false;
-    setTimeout(connectToSylixBackend, 5000);
+    setTimeout(connectToNativeHost, 5000);
   }
 }
 
 // Initial connect
-connectToSylixBackend();
+connectToNativeHost();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'tool_request') {

@@ -12,7 +12,8 @@
     "activeTab",
     "debugger",
     "clipboardRead",
-    "clipboardWrite"
+    "clipboardWrite",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "<all_urls>"
