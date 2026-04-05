@@ -1,6 +1,25 @@
 const EXTENSION_ID = 'coworker-browser-control';
 const MAX_MESSAGE_SIZE = 1024 * 1024;
 
+const attachedDebuggers = new Set<number>();
+
+async function attachDebugger(tabId: number): Promise<void> {
+  if (attachedDebuggers.has(tabId)) return;
+  const targets = await chrome.debugger.getTargets();
+  const target = targets.find(t => t.tabId === tabId);
+  if (target?.attached) {
+    attachedDebuggers.add(tabId);
+    return;
+  }
+  await chrome.debugger.attach({ tabId }, "1.3");
+  attachedDebuggers.add(tabId);
+}
+
+// Cleanup detached debuggers
+chrome.debugger.onDetach.addListener((source) => {
+  if (source.tabId) attachedDebuggers.delete(source.tabId);
+});
+
 interface ToolRequest {
   method: string;
   params?: unknown;
@@ -241,6 +260,140 @@ async function handleToolRequest(request: ToolRequest): Promise<ToolResponse> {
         return { success: true };
       }
 
+      case 'computer': {
+        const { action, coordinate, text, tabId } = params as any;
+        const targetTabId = tabId || (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+        if (!targetTabId) return { success: false, error: 'No tab specified' };
+        
+        await attachDebugger(targetTabId);
+        
+        try {
+          if (action === 'left_click' || action === 'right_click' || action === 'double_click') {
+            if (!coordinate || coordinate.length !== 2) return { success: false, error: 'Missing coordinate' };
+            const button = action === 'right_click' ? 'right' : 'left';
+            const clickCount = action === 'double_click' ? 2 : 1;
+            
+            await chrome.debugger.sendCommand({ tabId: targetTabId }, 'Input.dispatchMouseEvent', {
+              type: 'mousePressed', x: coordinate[0], y: coordinate[1], button, clickCount
+            });
+            await chrome.debugger.sendCommand({ tabId: targetTabId }, 'Input.dispatchMouseEvent', {
+              type: 'mouseReleased', x: coordinate[0], y: coordinate[1], button, clickCount
+            });
+          } else if (action === 'type') {
+            if (!text) return { success: false, error: 'Missing text' };
+            await chrome.scripting.executeScript({
+               target: { tabId: targetTabId },
+               func: (t: string) => { document.execCommand('insertText', false, t); },
+               args: [text]
+            });
+          } else if (action === 'key') {
+             await chrome.debugger.sendCommand({ tabId: targetTabId }, 'Input.dispatchKeyEvent', {
+                type: 'keyDown', commands: [text]
+              });
+              await chrome.debugger.sendCommand({ tabId: targetTabId }, 'Input.dispatchKeyEvent', {
+                type: 'keyUp', commands: [text]
+              });
+          } else if (action === 'scroll') {
+             const { scroll_amount, scroll_direction } = params as any;
+              const delta = (scroll_amount || 1) * 100;
+             await chrome.scripting.executeScript({
+               target: { tabId: targetTabId },
+               func: (dir: string, d: number) => {
+                 if (dir === 'down') window.scrollBy(0, d);
+                 if (dir === 'up') window.scrollBy(0, -d);
+               },
+               args: [scroll_direction || 'down', delta]
+             });
+          }
+          return { success: true };
+        } catch (error) {
+          return { success: false, error: String(error) };
+        }
+      }
+
+      case 'find':
+      case 'gif_creator':
+      case 'upload_image':
+        return { success: false, error: `${method} is not yet fully implemented via CDP in chromeworker.` };
+
+      case 'read_page': {
+        const { tabId } = params as any;
+        const targetTabId = tabId || (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+        
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: targetTabId },
+          func: () => {
+            const interactiveSelectors = 'a, button, input, select, textarea, [role="button"], [role="link"], [tabindex]:not([tabindex="-1"])';
+            const elements = document.querySelectorAll(interactiveSelectors);
+            let mapOut = 'Interactive Elements Map:\\n';
+            let refId = 1;
+            
+            // Expose map globally for form_input
+            (window as any).__coworker_element_map = new Map();
+            
+            elements.forEach((el) => {
+              const rect = el.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top <= (window.innerHeight || document.documentElement.clientHeight)) {
+                const text = (el.textContent || (el as HTMLInputElement).value || el.getAttribute('aria-label') || '').trim().substring(0, 50);
+                if (text || el.tagName === 'INPUT') {
+                  const id = `ref_${refId++}`;
+                  (window as any).__coworker_element_map.set(id, el);
+                  const center = [Math.round(rect.left + rect.width / 2), Math.round(rect.top + rect.height / 2)];
+                  mapOut += `[${id}] <${el.tagName.toLowerCase()}> "${text.replace(/\n/g, ' ')}" at ${JSON.stringify(center)}\n`;
+                }
+              }
+            });
+            return mapOut;
+          }
+        });
+        return { success: true, result: results[0]?.result };
+      }
+      
+      case 'form_input': {
+        const { tabId, ref, value } = params as any;
+        const targetTabId = tabId || (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+        
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: targetTabId },
+          func: (r: string, v: string) => {
+            const map = (window as any).__coworker_element_map;
+            if (!map || !map.has(r)) return 'Element reference not found. Run read_page first.';
+            const el = map.get(r);
+            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+               el.value = v;
+               el.dispatchEvent(new Event('change', { bubbles: true }));
+               el.dispatchEvent(new Event('input', { bubbles: true }));
+               return `Filled ${r} with ${v}`;
+            }
+            return 'Element is not a form input';
+          },
+          args: [ref, value]
+        });
+        return { success: !!results[0]?.result && !String(results[0].result).includes('not found'), result: results[0]?.result };
+      }
+
+      case 'get_page_text': {
+        const { tabId } = params as { tabId: number };
+        const results = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => document.body.innerText || document.documentElement.innerText,
+        });
+        return { success: true, result: results[0]?.result };
+      }
+
+      case 'network_read': {
+        return { success: true, result: [] }; // Stub
+      }
+
+      case 'resize_window': {
+        const { tabId, width, height } = params as { tabId: number; width: number; height: number };
+        const tab = await chrome.tabs.get(tabId);
+        if (tab.windowId) {
+          await chrome.windows.update(tab.windowId, { width, height });
+        }
+        return { success: true };
+      }
+
       case 'get_status': {
         return {
           success: true,
@@ -296,6 +449,69 @@ function setupConsoleListener(): void {
 
 setupConsoleListener();
 
+let ws: WebSocket | null = null;
+let isNativeConnected = false;
+
+// Token can be fetched from storage in the future to pair securely.
+// For now, we simulate the IDE auth with a fixed token.
+const SYLIX_BACKEND_URL = 'wss://api.sylixide.com/ws/extension?token=default-desktop-token';
+
+function connectToSylixBackend() {
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
+  console.log('[CoWorker] Attempting to connect to Sylix backend WebSocket...');
+  try {
+    ws = new WebSocket(SYLIX_BACKEND_URL);
+    
+    ws.onopen = () => {
+      console.log('[CoWorker] Connected to Sylix backend successfully.');
+      isNativeConnected = true;
+    };
+    
+    ws.onmessage = async (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        console.log('[CoWorker] Received message from backend:', message);
+        if (message.type === 'tool_request' && message.id) {
+          const response = await handleToolRequest(message as ToolRequest);
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'tool_response',
+              id: message.id,
+              success: response.success,
+              result: response.result,
+              error: response.error
+            }));
+          }
+        }
+      } catch (e) {
+        console.error('[CoWorker] Failed to handle WebSocket message:', e);
+      }
+    };
+
+    ws.onclose = (event) => {
+      console.log('[CoWorker] Disconnected from Sylix backend:', event.reason);
+      ws = null;
+      isNativeConnected = false;
+      // Reconnect after 5 seconds
+      setTimeout(connectToSylixBackend, 5000);
+    };
+
+    ws.onerror = (err: Event) => {
+      console.error('[CoWorker] WebSocket error:', err);
+      try { ws?.close(); } catch(e) {}
+    };
+
+  } catch (err: any) {
+    console.error('[CoWorker] Failed to connect to Sylix backend:', err);
+    ws = null;
+    isNativeConnected = false;
+    setTimeout(connectToSylixBackend, 5000);
+  }
+}
+
+// Initial connect
+connectToSylixBackend();
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'tool_request') {
     handleToolRequest(message as ToolRequest)
@@ -311,7 +527,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'get_status') {
     handleToolRequest({ method: 'get_status' })
-      .then(response => sendResponse(response))
+      .then(response => {
+        // Override connected status with real native connection status
+        if (response.success && response.result) {
+          (response.result as any).connected = isNativeConnected;
+        }
+        sendResponse(response);
+      })
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }

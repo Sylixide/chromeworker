@@ -1,365 +1,319 @@
-(() => {
-  var __getOwnPropNames = Object.getOwnPropertyNames;
-  var __commonJS = (cb, mod) => function __require() {
-    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-  };
-
-  // background.ts
-  var require_background = __commonJS({
-    "background.ts"(exports, module) {
-      var EXTENSION_ID = "coworker-browser-control";
-      var NATIVE_HOST_NAME = "com.coworker.chrome_native_host";
-      var MAX_MESSAGE_SIZE = 1024 * 1024;
-      var consoleMessages = [];
-      var MAX_CONSOLE_MESSAGES = 1e3;
-      var nativePort = null;
-      var nativeConnected = false;
-      function connectToNativeHost() {
-        try {
-          nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-          nativeConnected = true;
-          console.log("[CoWorker] Connected to native host");
-          nativePort.onMessage.addListener((message) => {
-            const msg = message;
-            if (msg.type === "tool_response" || msg.type === "status_response") {
+const EXTENSION_ID = 'coworker-browser-control';
+const MAX_MESSAGE_SIZE = 1024 * 1024;
+const consoleMessages = [];
+const MAX_CONSOLE_MESSAGES = 1000;
+function addConsoleMessage(msg) {
+    consoleMessages.push(msg);
+    if (consoleMessages.length > MAX_CONSOLE_MESSAGES) {
+        consoleMessages.shift();
+    }
+}
+async function handleToolRequest(request) {
+    const { method, params } = request;
+    try {
+        switch (method) {
+            case 'tabs_list': {
+                const tabs = await chrome.tabs.query(params);
+                return {
+                    success: true,
+                    result: tabs.map((tab) => ({
+                        id: tab.id,
+                        url: tab.url || '',
+                        title: tab.title || '',
+                        active: tab.active,
+                        windowId: tab.windowId,
+                    })),
+                };
             }
-          });
-          nativePort.onDisconnect.addListener(() => {
-            console.log("[CoWorker] Disconnected from native host");
-            nativeConnected = false;
-            nativePort = null;
-            setTimeout(connectToNativeHost, 5e3);
-          });
-        } catch (error) {
-          console.log("[CoWorker] Failed to connect to native host:", error);
-          nativeConnected = false;
-          setTimeout(connectToNativeHost, 5e3);
-        }
-      }
-      function sendToNativeHost(message) {
-        if (nativePort && nativeConnected) {
-          try {
-            nativePort.postMessage(message);
-          } catch (error) {
-            console.log("[CoWorker] Failed to send to native host:", error);
-          }
-        }
-      }
-      async function handleToolRequestNative(request2) {
-        return new Promise((resolve) => {
-          if (!nativePort || !nativeConnected) {
-            resolve({ success: false, error: "Not connected to native host" });
-            return;
-          }
-          const responseHandler = (message) => {
-            const msg = message;
-            if (msg.success !== void 0) {
-              nativePort?.onMessage.removeListener(responseHandler);
-              resolve(msg);
+            case 'tabs_create': {
+                const tab = await chrome.tabs.create(params);
+                return {
+                    success: true,
+                    result: {
+                        id: tab.id,
+                        url: tab.url,
+                        title: tab.title,
+                        active: tab.active,
+                        windowId: tab.windowId,
+                    },
+                };
             }
-          };
-          nativePort.onMessage.addListener(responseHandler);
-          sendToNativeHost({ type: "tool_request", ...request2 });
-          setTimeout(() => {
-            nativePort?.onMessage.removeListener(responseHandler);
-            resolve({ success: false, error: "Request timeout" });
-          }, 3e4);
-        });
-      }
-      function addConsoleMessage(msg) {
-        consoleMessages.push(msg);
-        if (consoleMessages.length > MAX_CONSOLE_MESSAGES) {
-          consoleMessages.shift();
-        }
-      }
-      async function handleToolRequest(request) {
-        if (nativeConnected && nativePort) {
-          try {
-            return await handleToolRequestNative(request);
-          } catch (error) {
-            console.log("[CoWorker] Native host failed, falling back to local:", error);
-          }
-        }
-        const { method, params } = request;
-        try {
-          switch (method) {
-            case "tabs_list": {
-              const tabs = await chrome.tabs.query(params);
-              return {
-                success: true,
-                result: tabs.map((tab) => ({
-                  id: tab.id,
-                  url: tab.url || "",
-                  title: tab.title || "",
-                  active: tab.active,
-                  windowId: tab.windowId
-                }))
-              };
+            case 'tabs_get': {
+                const tab = await chrome.tabs.get(params);
+                return {
+                    success: true,
+                    result: tab ? {
+                        id: tab.id,
+                        url: tab.url,
+                        title: tab.title,
+                        active: tab.active,
+                        windowId: tab.windowId,
+                    } : null,
+                };
             }
-            case "tabs_create": {
-              const tab = await chrome.tabs.create(params);
-              return {
-                success: true,
-                result: {
-                  id: tab.id,
-                  url: tab.url,
-                  title: tab.title,
-                  active: tab.active,
-                  windowId: tab.windowId
+            case 'tabs_update': {
+                const [tab] = await chrome.tabs.update(params);
+                return {
+                    success: true,
+                    result: tab ? {
+                        id: tab.id,
+                        url: tab.url,
+                        title: tab.title,
+                        active: tab.active,
+                        windowId: tab.windowId,
+                    } : null,
+                };
+            }
+            case 'tabs_close': {
+                await chrome.tabs.remove(params);
+                return { success: true };
+            }
+            case 'tabs_reload': {
+                await chrome.tabs.reload(params);
+                return { success: true };
+            }
+            case 'tabs_go_back': {
+                const [tab] = await chrome.tabs.goBack(params);
+                return { success: true, result: tab };
+            }
+            case 'tabs_go_forward': {
+                const [tab] = await chrome.tabs.goForward(params);
+                return { success: true, result: tab };
+            }
+            case 'console_read': {
+                const { pattern, limit } = params || {};
+                let filtered = consoleMessages;
+                if (pattern) {
+                    const regex = new RegExp(pattern);
+                    filtered = filtered.filter(m => regex.test(m.message));
                 }
-              };
+                const final = filtered.slice(-(limit || 100));
+                return { success: true, result: final };
             }
-            case "tabs_get": {
-              const tab = await chrome.tabs.get(params);
-              return {
-                success: true,
-                result: tab ? {
-                  id: tab.id,
-                  url: tab.url,
-                  title: tab.title,
-                  active: tab.active,
-                  windowId: tab.windowId
-                } : null
-              };
+            case 'console_clear': {
+                consoleMessages.length = 0;
+                return { success: true };
             }
-            case "tabs_update": {
-              const [tab] = await chrome.tabs.update(params);
-              return {
-                success: true,
-                result: tab ? {
-                  id: tab.id,
-                  url: tab.url,
-                  title: tab.title,
-                  active: tab.active,
-                  windowId: tab.windowId
-                } : null
-              };
-            }
-            case "tabs_close": {
-              await chrome.tabs.remove(params);
-              return { success: true };
-            }
-            case "tabs_reload": {
-              await chrome.tabs.reload(params);
-              return { success: true };
-            }
-            case "tabs_go_back": {
-              const [tab] = await chrome.tabs.goBack(params);
-              return { success: true, result: tab };
-            }
-            case "tabs_go_forward": {
-              const [tab] = await chrome.tabs.goForward(params);
-              return { success: true, result: tab };
-            }
-            case "console_read": {
-              const { pattern, limit } = params || {};
-              let filtered = consoleMessages;
-              if (pattern) {
-                const regex = new RegExp(pattern);
-                filtered = filtered.filter((m) => regex.test(m.message));
-              }
-              const final = filtered.slice(-(limit || 100));
-              return { success: true, result: final };
-            }
-            case "console_clear": {
-              consoleMessages.length = 0;
-              return { success: true };
-            }
-            case "script_execute": {
-              const { tabId: tabId2, code: code2, args } = params;
-              const results2 = await chrome.scripting.executeScript({
-                target: tabId2 ? { tabId: tabId2 } : { all: true },
-                func: new Function("args", code2)(args)
-              });
-              return {
-                success: true,
-                result: results2.map((r) => r.result)
-              };
-            }
-            case "script_insert": {
-              const { tabId, code, css } = params;
-              const injectionResults = [];
-              if (code) {
+            case 'script_execute': {
+                const { tabId, code, args } = params;
                 const results = await chrome.scripting.executeScript({
-                  target: tabId ? { tabId } : { all: true },
-                  func: () => {
-                    eval(code);
-                  }
+                    target: tabId ? { tabId } : { all: true },
+                    func: new Function('args', code)(args),
                 });
-                injectionResults.push(...results.map((r) => r.result));
-              }
-              if (css) {
-                const results2 = await chrome.scripting.insertCSS({
-                  target: tabId ? { tabId } : { all: true },
-                  css
-                });
-                injectionResults.push(results2);
-              }
-              return { success: true, result: injectionResults };
+                return {
+                    success: true,
+                    result: results.map(r => r.result),
+                };
             }
-            case "screenshot": {
-              const { tabId: tabId2, format, quality } = params;
-              const targetTabId = tabId2 || (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
-              if (!targetTabId) {
-                return { success: false, error: "No active tab found" };
-              }
-              const dataUrl = await chrome.tabs.captureVisibleTab(targetTabId, {
-                format: format || "png",
-                quality: quality || 100
-              });
-              return { success: true, result: { dataUrl } };
-            }
-            case "cookies_get": {
-              const { url, name } = params;
-              const cookies = await chrome.cookies.get({ url, name });
-              return { success: true, result: cookies };
-            }
-            case "cookies_set": {
-              const cookie = await chrome.cookies.set(params);
-              return { success: true, result: cookie };
-            }
-            case "cookies_delete": {
-              const { url, name } = params;
-              await chrome.cookies.remove({ url, name });
-              return { success: true };
-            }
-            case "storage_get": {
-              const { keys } = params;
-              const data = await chrome.storage.local.get(keys);
-              return { success: true, result: data };
-            }
-            case "storage_set": {
-              await chrome.storage.local.set(params);
-              return { success: true };
-            }
-            case "storage_delete": {
-              const { keys } = params;
-              await chrome.storage.local.remove(keys);
-              return { success: true };
-            }
-            case "get_status": {
-              return {
-                success: true,
-                result: {
-                  extensionId: EXTENSION_ID,
-                  version: "1.0.0",
-                  connected: true
+            case 'script_insert': {
+                const { tabId, code, css } = params;
+                const injectionResults = [];
+                if (code) {
+                    const results = await chrome.scripting.executeScript({
+                        target: tabId ? { tabId } : { all: true },
+                        func: () => {
+                            eval(code);
+                        },
+                    });
+                    injectionResults.push(...results.map(r => r.result));
                 }
-              };
+                if (css) {
+                    const results = await chrome.scripting.insertCSS({
+                        target: tabId ? { tabId } : { all: true },
+                        css,
+                    });
+                    injectionResults.push(results);
+                }
+                return { success: true, result: injectionResults };
+            }
+            case 'screenshot': {
+                const { tabId, format, quality } = params;
+                const targetTabId = tabId || (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+                if (!targetTabId) {
+                    return { success: false, error: 'No active tab found' };
+                }
+                const dataUrl = await chrome.tabs.captureVisibleTab(targetTabId, {
+                    format: format || 'png',
+                    quality: quality || 100,
+                });
+                return { success: true, result: { dataUrl } };
+            }
+            case 'cookies_get': {
+                const { url, name } = params;
+                const cookies = await chrome.cookies.get({ url, name });
+                return { success: true, result: cookies };
+            }
+            case 'cookies_set': {
+                const cookie = await chrome.cookies.set(params);
+                return { success: true, result: cookie };
+            }
+            case 'cookies_delete': {
+                const { url, name } = params;
+                await chrome.cookies.remove({ url, name });
+                return { success: true };
+            }
+            case 'storage_get': {
+                const { keys } = params;
+                const data = await chrome.storage.local.get(keys);
+                return { success: true, result: data };
+            }
+            case 'storage_set': {
+                await chrome.storage.local.set(params);
+                return { success: true };
+            }
+            case 'storage_delete': {
+                const { keys } = params;
+                await chrome.storage.local.remove(keys);
+                return { success: true };
+            }
+            case 'computer':
+            case 'find':
+            case 'form_input':
+            case 'gif_creator':
+            case 'read_page':
+            case 'upload_image':
+                return { success: false, error: `${method} is not yet fully implemented via CDP in chromeworker.` };
+            case 'get_page_text': {
+                const { tabId } = params;
+                const results = await chrome.scripting.executeScript({
+                    target: { tabId },
+                    func: () => document.body.innerText || document.documentElement.innerText,
+                });
+                return { success: true, result: results[0]?.result };
+            }
+            case 'network_read': {
+                return { success: true, result: [] }; // Stub
+            }
+            case 'resize_window': {
+                const { tabId, width, height } = params;
+                const tab = await chrome.tabs.get(tabId);
+                if (tab.windowId) {
+                    await chrome.windows.update(tab.windowId, { width, height });
+                }
+                return { success: true };
+            }
+            case 'get_status': {
+                return {
+                    success: true,
+                    result: {
+                        extensionId: EXTENSION_ID,
+                        version: '1.0.0',
+                        connected: true,
+                    },
+                };
             }
             default:
-              return { success: false, error: `Unknown method: ${method}` };
-          }
-        } catch (error) {
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error)
-          };
+                return { success: false, error: `Unknown method: ${method}` };
         }
-      }
-      function setupConsoleListener() {
-        chrome.tabs.onCreated.addListener((tab) => {
-          addConsoleMessage({
-            type: "info",
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+function setupConsoleListener() {
+    chrome.tabs.onCreated.addListener((tab) => {
+        addConsoleMessage({
+            type: 'info',
             message: `Tab created: ${tab.id} - ${tab.title}`,
             timestamp: Date.now(),
-            source: "extension"
-          });
+            source: 'extension',
         });
-        chrome.tabs.onRemoved.addListener((tabId2) => {
-          addConsoleMessage({
-            type: "info",
-            message: `Tab closed: ${tabId2}`,
+    });
+    chrome.tabs.onRemoved.addListener((tabId) => {
+        addConsoleMessage({
+            type: 'info',
+            message: `Tab closed: ${tabId}`,
             timestamp: Date.now(),
-            source: "extension"
-          });
+            source: 'extension',
         });
-        chrome.tabs.onUpdated.addListener((tabId2, changeInfo, tab) => {
-          if (changeInfo.url) {
+    });
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+        if (changeInfo.url) {
             addConsoleMessage({
-              type: "info",
-              message: `Tab ${tabId2} navigated to: ${changeInfo.url}`,
-              timestamp: Date.now(),
-              source: "extension"
+                type: 'info',
+                message: `Tab ${tabId} navigated to: ${changeInfo.url}`,
+                timestamp: Date.now(),
+                source: 'extension',
             });
-          }
+        }
+    });
+}
+setupConsoleListener();
+let nativePort = null;
+let isNativeConnected = false;
+function connectToNativeHost() {
+    if (nativePort)
+        return;
+    console.log('[CoWorker] Attempting to connect to native host...');
+    try {
+        nativePort = chrome.runtime.connectNative('com.coworker.chrome_native_host');
+        nativePort.onMessage.addListener(async (message) => {
+            console.log('[CoWorker] Received message from native host:', message);
+            if (message.type === 'tool_request') {
+                const response = await handleToolRequest(message);
+                if (nativePort) {
+                    nativePort.postMessage({
+                        type: 'tool_response',
+                        success: response.success,
+                        result: response.result,
+                        error: response.error
+                    });
+                }
+            }
         });
-      }
-      setupConsoleListener();
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.type === "tool_request") {
-          handleToolRequest(message).then((response) => sendResponse(response)).catch((error) => sendResponse({ success: false, error: error.message }));
-          return true;
-        }
-        if (message.type === "ping") {
-          sendResponse({ type: "pong", timestamp: Date.now() });
-          return false;
-        }
-        if (message.type === "get_status") {
-          handleToolRequest({ method: "get_status" }).then((response) => sendResponse(response)).catch((error) => sendResponse({ success: false, error: error.message }));
-          return true;
-        }
-        return false;
-      });
-      chrome.runtime.onConnectExternal.addListener((port) => {
-        if (port.name === "coworker-mcp") {
-          port.onMessage.addListener(async (message) => {
-            if (message.type === "tool_request") {
-              const response = await handleToolRequest(message);
-              port.postMessage(response);
-            }
-          });
-        }
-      });
-      connectToNativeHost();
-      var CURRENT_VERSION = "1.0.1";
-      var GITHUB_RELEASES_URL = "https://api.github.com/repos/Sylixide/chromeworker/releases/latest";
-      var DOWNLOAD_URL = "https://github.com/Sylixide/chromeworker/releases";
-      var updateAvailable = false;
-      var latestVersion = CURRENT_VERSION;
-      async function checkForUpdates() {
-        try {
-          const response = await fetch(GITHUB_RELEASES_URL);
-          if (!response.ok) return;
-          const data = await response.json();
-          const remoteVersion = data.tag_name?.replace("v", "") || "";
-          if (remoteVersion && remoteVersion !== CURRENT_VERSION) {
-            const currentParts = CURRENT_VERSION.split(".").map(Number);
-            const remoteParts = remoteVersion.split(".").map(Number);
-            for (let i = 0; i < Math.max(currentParts.length, remoteParts.length); i++) {
-              const current = currentParts[i] || 0;
-              const remote = remoteParts[i] || 0;
-              if (remote > current) {
-                updateAvailable = true;
-                latestVersion = remoteVersion;
-                console.log(`[CoWorker] Update available: v${CURRENT_VERSION} \u2192 v${latestVersion}`);
-                chrome.storage.local.set({ updateAvailable: true, latestVersion, downloadUrl: DOWNLOAD_URL });
-                return;
-              }
-              if (remote < current) break;
-            }
-          }
-          chrome.storage.local.set({ updateAvailable: false, latestVersion: CURRENT_VERSION });
-        } catch (error) {
-          console.log("[CoWorker] Failed to check for updates:", error);
-        }
-      }
-      checkForUpdates();
-      setInterval(checkForUpdates, 6 * 60 * 60 * 1e3);
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.type === "check_update") {
-          sendResponse({ updateAvailable, latestVersion, currentVersion: CURRENT_VERSION, downloadUrl: DOWNLOAD_URL });
-          return false;
-        }
-        if (message.type === "force_check_update") {
-          checkForUpdates().then(() => {
-            sendResponse({ updateAvailable, latestVersion, currentVersion: CURRENT_VERSION, downloadUrl: DOWNLOAD_URL });
-          });
-          return true;
-        }
-        return false;
-      });
+        nativePort.onDisconnect.addListener(() => {
+            console.log('[CoWorker] Disconnected from native host:', chrome.runtime.lastError?.message);
+            nativePort = null;
+            isNativeConnected = false;
+            // Reconnect after 5 seconds
+            setTimeout(connectToNativeHost, 5000);
+        });
+        isNativeConnected = true;
+        console.log('[CoWorker] Connected to native host successfully.');
     }
-  });
-  require_background();
-})();
+    catch (err) {
+        console.error('[CoWorker] Failed to connect to native host:', err);
+        nativePort = null;
+        isNativeConnected = false;
+    }
+}
+// Initial connect
+connectToNativeHost();
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'tool_request') {
+        handleToolRequest(message)
+            .then(response => sendResponse(response))
+            .catch(error => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+    if (message.type === 'ping') {
+        sendResponse({ type: 'pong', timestamp: Date.now() });
+        return false;
+    }
+    if (message.type === 'get_status') {
+        handleToolRequest({ method: 'get_status' })
+            .then(response => {
+            // Override connected status with real native connection status
+            if (response.success && response.result) {
+                response.result.connected = isNativeConnected;
+            }
+            sendResponse(response);
+        })
+            .catch(error => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+    return false;
+});
+chrome.runtime.onConnectExternal.addListener((port) => {
+    if (port.name === 'coworker-mcp') {
+        port.onMessage.addListener(async (message) => {
+            if (message.type === 'tool_request') {
+                const response = await handleToolRequest(message);
+                port.postMessage(response);
+            }
+        });
+    }
+});

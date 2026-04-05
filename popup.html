@@ -2,92 +2,232 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>CoWorker</title>
+  <title>CoWorker Authenticator</title>
   <style>
+    :root {
+      --bg-base: #0f1115;
+      --bg-panel: #1a1d24;
+      --border-color: #2d333b;
+      --text-main: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #3182ce;
+      --success: #2ea043;
+      --danger: #f85149;
+    }
+
     body {
       width: 320px;
-      padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a2e;
-      color: #eee;
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      -webkit-font-smoothing: antialiased;
     }
-    .status {
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    .header {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      font-size: 16px;
+      font-weight: 600;
+      color: #ffffff;
+      margin: 0 0 4px 0;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .dashboard-panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .status-label {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-indicator {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 12px;
-      background: #16213e;
-      border-radius: 8px;
-      margin-bottom: 12px;
     }
-    .status-dot {
+
+    .status-circle {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #4ade80;
+      background-color: var(--danger);
+      box-shadow: 0 0 8px rgba(248, 81, 73, 0.4);
+      transition: background-color 0.3s ease, box-shadow 0.3s ease;
     }
-    .status-dot.disconnected {
-      background: #f87171;
-    }
-    h3 {
-      margin: 0 0 8px 0;
-      font-size: 14px;
-      font-weight: 600;
-    }
-    .info {
+
+    .status-text {
       font-size: 12px;
-      color: #888;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
-    .version {
-      font-size: 11px;
-      color: #666;
-      margin-top: 8px;
+
+    .status-circle.connected {
+      background-color: var(--success);
+      box-shadow: 0 0 8px rgba(46, 160, 67, 0.4);
     }
-    .update-banner {
-      display: none;
-      padding: 10px 12px;
-      background: #1e3a5f;
-      border: 1px solid #3b82f6;
-      border-radius: 8px;
-      margin-bottom: 12px;
-      cursor: pointer;
-    }
-    .update-banner.visible {
-      display: block;
-    }
-    .update-banner:hover {
-      background: #264a73;
-    }
-    .update-text {
-      font-size: 12px;
-      color: #93c5fd;
-      margin: 0;
-    }
-    .update-text strong {
-      color: #60a5fa;
-    }
-    .update-link {
-      font-size: 11px;
-      color: #60a5fa;
-      text-decoration: underline;
+
+    .stats-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
       margin-top: 4px;
-      display: block;
     }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+    }
+
+    .stat-key {
+      color: var(--text-muted);
+    }
+
+    .stat-value {
+      color: var(--text-main);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .action-button {
+      background-color: var(--accent);
+      color: #ffffff;
+      border: 1px solid rgba(240, 246, 252, 0.1);
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      text-align: center;
+      transition: background-color 0.2s ease, transform 0.1s ease;
+      outline: none;
+    }
+
+    .action-button:hover {
+      background-color: var(--accent-hover);
+    }
+
+    .action-button:active {
+      transform: translateY(1px);
+    }
+
+    /* Auth State Control */
+    .view-unauthenticated, .view-authenticated {
+      display: none;
+    }
+
+    body[data-auth-state="false"] .view-unauthenticated {
+       display: flex;
+       flex-direction: column;
+       gap: 16px;
+    }
+
+    body[data-auth-state="true"] .view-authenticated {
+       display: block;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border-color);
+      width: 100%;
+      margin: 8px 0;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: center;
+      margin-top: 16px;
+    }
+
+    .version-tag {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
   </style>
 </head>
-<body>
-  <div class="status">
-    <div class="status-dot" id="statusDot"></div>
-    <span id="statusText">Connected</span>
+<body data-auth-state="false">
+
+  <div class="header">
+    <h1 class="brand">Sylix CoWorker</h1>
+    <p class="subtitle">Cloud-Relayed Browser Automation</p>
   </div>
-  <h3>CoWorker Browser Control</h3>
-  <p class="info">Browser automation enabled via MCP</p>
-  <p class="info" id="tabCount">Active tabs: -</p>
-  <div class="update-banner" id="updateBanner" onclick="openDownloadUrl()">
-    <p class="update-text"><strong>Update Available</strong> <span id="updateVersion"></span></p>
-    <span class="update-link">Click to download new version</span>
+
+  <div class="dashboard-panel">
+    
+    <!-- Not Logged In View -->
+    <div class="view-unauthenticated">
+      <div style="font-size: 13px; line-height: 1.5; color: var(--text-muted);">
+        Authenticate with your Sylix IDE account to pair your CLI and automate your browser remotely.
+      </div>
+      <button class="action-button" id="loginBtn">Authenticate Workspace</button>
+    </div>
+
+    <!-- Authenticated / Connected View -->
+    <div class="view-authenticated">
+      <div class="status-row">
+        <span class="status-label">Relay Status</span>
+        <div class="status-indicator">
+          <div class="status-circle" id="relayDot"></div>
+          <span class="status-text" id="relayText">Offline</span>
+        </div>
+      </div>
+      
+      <div class="divider"></div>
+      
+      <div class="stats-container">
+        <div class="stat-row">
+          <span class="stat-key">Managed Tabs</span>
+          <span class="stat-value" id="tabCount">-</span>
+        </div>
+        <div class="stat-row" style="margin-top: 4px;">
+          <span class="stat-key">Session JWT</span>
+          <span class="stat-value" style="font-family: monospace; color: var(--success);">Active</span>
+        </div>
+      </div>
+      
+      <button class="action-button" id="logoutBtn" style="margin-top: 16px; background-color: var(--bg-base); border: 1px solid var(--border-color); color: var(--text-muted);">Disconnect Session</button>
+    </div>
+
   </div>
-  <div class="version">Version <span id="currentVersion">1.0.1</span></div>
+
+  <div class="footer">
+    <span class="version-tag" id="currentVersion">v1.0.0</span>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
