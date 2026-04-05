@@ -319,6 +319,22 @@ async function handleToolRequest(request: ToolRequest): Promise<ToolResponse> {
                },
                args: [scroll_direction || 'down', delta]
              });
+          } else if (action === 'navigate') {
+            const { url } = params as any;
+            if (!url) return { success: false, error: 'Missing url for navigate action' };
+            const updatedTab = await chrome.tabs.update(targetTabId, { url, active: true });
+            return {
+              success: true,
+              result: {
+                id: updatedTab.id,
+                url: updatedTab.url || updatedTab.pendingUrl || url,
+                title: updatedTab.title,
+                active: updatedTab.active,
+              },
+            };
+          } else if (action === 'screenshot') {
+            const dataUrl = await chrome.tabs.captureVisibleTab(undefined!, { format: 'png' });
+            return { success: true, result: dataUrl };
           }
           return { success: true };
         } catch (error) {
